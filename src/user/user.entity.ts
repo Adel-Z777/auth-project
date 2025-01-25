@@ -10,4 +10,13 @@ export class User {
 
   @Column()
   password: string;
+
+  @Column({ nullable: true })
+  verificationCode: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  verificationCodeExpires: Date;
+
+  @Column({ default: false }) // New field to track verification status
+  isVerified: boolean; // Indicates if the user has verified their email
 }

@@ -1,36 +1,44 @@
-import { Body, Controller, Get, Post, UseGuards, UnauthorizedException, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, Req, Res, HttpCode } from '@nestjs/common';
+import { RegisterDto } from './dto/register.dto';
 import { Response, Request } from 'express';
 import { AuthService } from './auth.service';
-import { UserService } from '../user/user.service';
-// import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { JwtAuthGuard } from '../guards/cutom.guard';
 import { LoginDto } from './dto/login.dto';
+import { JwtAuthGuard } from 'src/guards/cutom.guard';
+import { VerifyDto } from './dto/verify.dto'; // Importing VerifyDto
 
-@Controller()
+@Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
-    private userService: UserService,
   ) {}
 
   @Post('login')
   async login(@Body() loginDto: LoginDto, @Req() req: Request, @Res() res: Response) {
-    const user = await this.userService.validateUser(loginDto.email, loginDto.password);
-    // const user = await this.authService.validateUser (loginDto.email, loginDto.password);
+    const user = await this.authService.validateUser(loginDto.email, loginDto.password);
     const { access_token } = await this.authService.login(user, req.session);
     
-    // Set the session ID cookie
-    res.cookie('session_id', req.sessionID, { httpOnly: true, secure: true });
+    res.setHeader('Authorization', `Bearer ${access_token}`);
     return res.send({ message: 'Login successful', access_token });
   }
 
-  @Get('profile')
-  @UseGuards(JwtAuthGuard) // Protect the route
-  async getProfile(@Req() req: Request) {
-    const uuid = req.user?.uuid; // Now TypeScript recognizes req.user
-    if (!uuid) {
-      throw new Error('User  not found'); // Handle the case where user is not found
+  @Post('register')
+  async register(@Body() registerDto: RegisterDto, @Res() res: Response) {
+    const user = await this.authService.register(registerDto.email, registerDto.password);
+    return res.redirect('/profile');
+  }
+
+  @Post('verify')
+  async verifyCode(@Body() verifyDto: VerifyDto, @Res() res: Response) {
+    const isVerified = await this.authService.verifyCode(verifyDto.email, verifyDto.code);
+    if (isVerified) {
+      return res.send({ message: 'Email verified successfully' });
     }
-    return this.authService.getProfile(uuid); // Pass uuid as a string
+    return res.status(400).send({ message: 'Invalid or expired verification code' });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  async getProfile(@Req() req: Request) {
+    return req.user; 
   }
 }

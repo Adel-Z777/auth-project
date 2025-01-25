@@ -19,6 +19,7 @@ import { User } from './user/user.entity';
       synchronize: true,
       logging: true,
     }),
+    TypeOrmModule.forFeature([User]),
     UserModule,
     AuthModule,
   ],
