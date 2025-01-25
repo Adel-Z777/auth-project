@@ -56,7 +56,7 @@ export class AuthService {
     });
 
     const mailOptions = {
-        from: '"Your App" <your-email@example.com>', // Sender address
+        from: 'Winoptic', // Sender address
         to: email, // List of recipients
         subject: 'Email Verification', // Subject line
         text: `Your verification code is: ${verificationCode}`, // Plain text body
