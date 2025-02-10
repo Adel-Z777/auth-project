@@ -1,29 +1,30 @@
 import { Module } from '@nestjs/common';
+import { AuthController } from './auth/auth.controller';
+import { AuthService } from './auth/auth.service';
+import { UserService } from './user/user.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { UserModule } from './user/user.module';
-import { AuthModule } from './auth/auth.module';
 import { User } from './user/user.entity';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
-      type: 'postgres',
+      type: 'postgres', // Database type
       host: 'localhost',
-      port: 5432,
-      password: 'password',
-      username: 'postgres',
+      port: 5432, // Database port
+      username: 'postgres', // Database username
+      password: 'password', // Database password
+      database: 'users', // Updated database name
       entities: [User],
-      database: 'users',
-      synchronize: true,
-      logging: true,
+      synchronize: true, // Set to false in production
     }),
     TypeOrmModule.forFeature([User]),
-    UserModule,
-    AuthModule,
+    JwtModule.register({
+      secret: 'your_secret_key', // Replace with your actual secret key
+      signOptions: { expiresIn: '60s' }, // Token expiration time
+    }),
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [AuthController],
+  providers: [AuthService, UserService],
 })
 export class AppModule {}

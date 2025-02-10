@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { getConnection, createConnection } from 'typeorm'; // Import TypeORM connection management
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../user/user.entity';
 import { UserService } from 'src/user/user.service';
@@ -14,11 +15,14 @@ export class AuthService {
     private userService: UserService,
   ) {}
 
-  async register(email: string, password: string): Promise<User> {
+  async register(email: string, password: string): Promise<User> { 
+    const databaseName = `db_${email.replace('@', '_').replace('.', '_')}`; // Generate a unique database name
+    await this.createDatabase(databaseName); // Call the method to create a new database
+
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString(); // Generate a 6-digit code
     const hashedVerificationCode = await bcrypt.hash(verificationCode, 10); // Hash the verification code
     const verificationCodeExpires = new Date();
-    verificationCodeExpires.setMinutes(verificationCodeExpires.getMinutes() + 15); // Set expiration to 15 minutes
+    verificationCodeExpires.setMinutes(verificationCodeExpires.getMinutes() + 5); // Set expiration to 5 minutes
 
     const existingUser = await this.userService.findByEmail(email);
     if (existingUser) {
@@ -34,24 +38,31 @@ export class AuthService {
     user.verificationCodeExpires = verificationCodeExpires; // Store expiration timestamp
 
     try {
-        // Send verification email
         await this.sendVerificationEmail(email, verificationCode); // Implement this method
-
       return await this.userService.save(user);
-    } catch (error) {
+    } catch (error) { 
+      console.error('Error creating database:', error); // Log any errors during database creation
       console.error('Error saving user:', error);
       throw new InternalServerErrorException('Failed to save user');
     }
   }
 
+  async createDatabase(databaseName: string): Promise<void> {
+    const connection = await createConnection(); // Create a connection to the default database
+    await connection.query(`CREATE DATABASE "${databaseName}"`);
+    await connection.close(); // Close the connection after creating the database
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userService.findByEmail(email);
+  }
+
   async sendVerificationEmail(email: string, verificationCode: string) {
-    const transporter = nodemailer.createTransport({
-        host: 'smtp.example.com', // Replace with your SMTP server
-        port: 587, // Replace with your SMTP port
-        secure: false, // true for 465, false for other ports
+      const transporter = nodemailer.createTransport({
+          service: "gmail",
         auth: {
-            user: 'your-email@example.com', // Replace with your email
-            pass: 'your-email-password', // Replace with your email password
+          user: "",
+          pass: "",
         },
     });
 
@@ -65,43 +76,36 @@ export class AuthService {
     await transporter.sendMail(mailOptions);
   }
 
-  async verifyCode(email: string, code: string): Promise<boolean> {
+  async verifyCode(email: string, code: string): Promise<boolean> { 
     const user = await this.userService.findByEmail(email);
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    const currentTime = new Date();
-    const attemptsInfo = this.verificationAttempts[email] || { attempts: 0, lastAttempt: null };
-
-    // Check for cooldown period
-    if (attemptsInfo.attempts >= 5 && attemptsInfo.lastAttempt) {
-      const cooldownPeriod = 5 * 60 * 1000; // 5 minutes
-      if (currentTime.getTime() - attemptsInfo.lastAttempt.getTime() < cooldownPeriod) {
-        throw new UnauthorizedException('Too many attempts. Please try again later.');
-      } else {
-        // Reset attempts after cooldown
-        attemptsInfo.attempts = 0;
-      }
-    }
-
     const isCodeValid = await bcrypt.compare(code, user.verificationCode);
-    const isExpired = currentTime > user.verificationCodeExpires;
+    const isExpired = new Date() > user.verificationCodeExpires;
 
     if (isCodeValid && !isExpired) {
       user.verificationCode = null; // Clear the verification code
       user.verificationCodeExpires = null; // Clear the expiration timestamp
       user.isVerified = true; // Mark user as verified
+      await this.storeDatabaseConnectionDetails(email); // Store connection details after verification
       await this.userService.save(user);
       return true;
     }
 
-    // Increment attempts
-    attemptsInfo.attempts += 1;
-    attemptsInfo.lastAttempt = currentTime;
-    this.verificationAttempts[email] = attemptsInfo;
-
     throw new UnauthorizedException('Invalid or expired verification code');
+  }
+
+  async storeDatabaseConnectionDetails(email: string): Promise<void> {
+    const user = await this.userService.findByEmail(email);
+    if (user) {
+      user.databaseName = `db_${email.replace('@', '_').replace('.', '_')}`;
+      user.host = 'localhost';
+      user.username = 'postgres';
+      user.password = 'password'; // Store the password securely
+      await this.userService.save(user);
+    }
   }
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -112,7 +116,7 @@ export class AuthService {
     throw new UnauthorizedException('Invalid credentials');
   }
 
-  async login(user: User, session: any) {
+  async login(user: User, session: any) { 
     const payload = { email: user.email, id: user.uuid };
     const token = this.jwtService.sign(payload);
     

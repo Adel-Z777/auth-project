@@ -1,16 +1,14 @@
-import { Body, Controller, Get, Post, UseGuards, Req, Res, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, Req, Res } from '@nestjs/common';
 import { RegisterDto } from './dto/register.dto';
 import { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from 'src/guards/cutom.guard';
-import { VerifyDto } from './dto/verify.dto'; // Importing VerifyDto
+import { VerifyDto } from './dto/verify.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private authService: AuthService,
-  ) {}
+  constructor(private authService: AuthService) {}
 
   @Post('login')
   async login(@Body() loginDto: LoginDto, @Req() req: Request, @Res() res: Response) {
@@ -24,14 +22,17 @@ export class AuthController {
   @Post('register')
   async register(@Body() registerDto: RegisterDto, @Res() res: Response) {
     const user = await this.authService.register(registerDto.email, registerDto.password);
-    return res.redirect('/profile');
+    return res.redirect('/verify');
   }
 
   @Post('verify')
   async verifyCode(@Body() verifyDto: VerifyDto, @Res() res: Response) {
     const isVerified = await this.authService.verifyCode(verifyDto.email, verifyDto.code);
     if (isVerified) {
-      return res.send({ message: 'Email verified successfully' });
+      await this.authService.storeDatabaseConnectionDetails(verifyDto.email);
+      const user = await this.authService.findByEmail(verifyDto.email); // Fetch user details
+      const token = await this.authService.login(user, {}); // Generate token
+      return res.redirect(`/profile?token=${token.access_token}`); // Redirect to profile with token
     }
     return res.status(400).send({ message: 'Invalid or expired verification code' });
   }
