@@ -1,5 +1,10 @@
-import { Injectable, UnauthorizedException, ConflictException, InternalServerErrorException } from '@nestjs/common';
-import { getConnection, createConnection } from 'typeorm'; // Import TypeORM connection management
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { DataSource } from 'typeorm'; // Import DataSource from TypeORM
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../user/user.entity';
 import { UserService } from 'src/user/user.service';
@@ -8,21 +13,39 @@ import nodemailer from 'nodemailer';
 
 @Injectable()
 export class AuthService {
-  private verificationAttempts: { [key: string]: { attempts: number; lastAttempt: Date } } = {};
+  private verificationAttempts: {
+    [key: string]: { attempts: number; lastAttempt: Date };
+  } = {};
+  private dataSource: DataSource; // Declare DataSource instance
 
   constructor(
     private jwtService: JwtService,
     private userService: UserService,
-  ) {}
+  ) {
+    this.dataSource = new DataSource({
+      type: 'postgres',
+      host: 'localhost',
+      port: 5432,
+      username: 'postgres',
+      password: 'password',
+      database: 'users', // Default database name
+      entities: [User],
+      synchronize: true,
+    });
+  }
 
-  async register(email: string, password: string): Promise<User> { 
+  async register(email: string, password: string): Promise<User> {
     const databaseName = `db_${email.replace('@', '_').replace('.', '_')}`; // Generate a unique database name
     await this.createDatabase(databaseName); // Call the method to create a new database
 
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString(); // Generate a 6-digit code
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString(); // Generate a 6-digit code
     const hashedVerificationCode = await bcrypt.hash(verificationCode, 10); // Hash the verification code
     const verificationCodeExpires = new Date();
-    verificationCodeExpires.setMinutes(verificationCodeExpires.getMinutes() + 5); // Set expiration to 5 minutes
+    verificationCodeExpires.setMinutes(
+      verificationCodeExpires.getMinutes() + 5,
+    ); // Set expiration to 5 minutes
 
     const existingUser = await this.userService.findByEmail(email);
     if (existingUser) {
@@ -38,9 +61,9 @@ export class AuthService {
     user.verificationCodeExpires = verificationCodeExpires; // Store expiration timestamp
 
     try {
-        await this.sendVerificationEmail(email, verificationCode); // Implement this method
+      await this.sendVerificationEmail(email, verificationCode); // Implement this method
       return await this.userService.save(user);
-    } catch (error) { 
+    } catch (error) {
       console.error('Error creating database:', error); // Log any errors during database creation
       console.error('Error saving user:', error);
       throw new InternalServerErrorException('Failed to save user');
@@ -48,9 +71,11 @@ export class AuthService {
   }
 
   async createDatabase(databaseName: string): Promise<void> {
-    const connection = await createConnection(); // Create a connection to the default database
-    await connection.query(`CREATE DATABASE "${databaseName}"`);
-    await connection.close(); // Close the connection after creating the database
+    if (!this.dataSource.isInitialized) {
+      await this.dataSource.initialize(); // Initialize the DataSource only if not already initialized
+    }
+    await this.dataSource.query(`CREATE DATABASE "${databaseName}"`);
+    await this.dataSource.destroy(); // Close the connection after creating the database
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -58,25 +83,25 @@ export class AuthService {
   }
 
   async sendVerificationEmail(email: string, verificationCode: string) {
-      const transporter = nodemailer.createTransport({
-          service: "gmail",
-        auth: {
-          user: "",
-          pass: "",
-        },
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: '',
+        pass: '',
+      },
     });
 
     const mailOptions = {
-        from: 'Winoptic', // Sender address
-        to: email, // List of recipients
-        subject: 'Email Verification', // Subject line
-        text: `Your verification code is: ${verificationCode}`, // Plain text body
+      from: 'Winoptic', // Sender address
+      to: email, // List of recipients
+      subject: 'Email Verification', // Subject line
+      text: `Your verification code is: ${verificationCode}`, // Plain text body
     };
 
     await transporter.sendMail(mailOptions);
   }
 
-  async verifyCode(email: string, code: string): Promise<boolean> { 
+  async verifyCode(email: string, code: string): Promise<boolean> {
     const user = await this.userService.findByEmail(email);
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -116,10 +141,10 @@ export class AuthService {
     throw new UnauthorizedException('Invalid credentials');
   }
 
-  async login(user: User, session: any) { 
+  async login(user: User, session: any) {
     const payload = { email: user.email, id: user.uuid };
     const token = this.jwtService.sign(payload);
-    
+
     // Store the token in the session
     session.token = token;
 
